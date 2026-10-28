@@ -77,6 +77,24 @@ function subjectPicker(list) {
     `<option value="${s.id}" ${s.id === selSubject ? "selected" : ""}>${esc(s.name)}${s.is_active ? " (aktif)" : ""}</option>`).join("")}</select>`;
 }
 
+function localDateTimeValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function scheduleStatus(subject) {
+  if (!subject.is_active) return "Nonaktif";
+  const now = Date.now();
+  const start = subject.scheduled_start ? new Date(subject.scheduled_start).getTime() : null;
+  const end = subject.scheduled_end ? new Date(subject.scheduled_end).getTime() : null;
+  if (start && now < start) return "Terjadwal";
+  if (end && now >= end) return "Jadwal berakhir";
+  return "Diujikan";
+}
+
 // ===================== TAB MAPEL =====================
 async function paneSubjects() {
   const list = await loadSubjects();
@@ -84,16 +102,18 @@ async function paneSubjects() {
     <div class="card"><div class="row between"><h2 style="margin:0">Mata Pelajaran</h2>
       <button class="primary" id="add">+ Tambah Mapel</button></div>
       <p class="small muted">Aktifkan mapel yang sedang diujikan. Hanya mapel aktif yang tampil di halaman siswa.</p>
-      <div class="tbl"><table><thead><tr><th>Nama</th><th>Durasi</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+      <div class="tbl"><table><thead><tr><th>Nama</th><th>Durasi</th><th>Jadwal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
       ${list.map(s => `<tr>
         <td><b>${esc(s.name)}</b><div class="small muted">${esc(s.description || "")}</div></td>
         <td>${s.duration_minutes} mnt</td>
+        <td class="small">${s.scheduled_start ? new Date(s.scheduled_start).toLocaleString("id-ID") : "Langsung"}
+          ${s.scheduled_end ? `<br>s.d. ${new Date(s.scheduled_end).toLocaleString("id-ID")}` : ""}</td>
         <td><label class="switch"><input type="checkbox" data-act="${s.id}" ${s.is_active ? "checked" : ""}>
-          <span class="pill ${s.is_active ? "on" : ""}">${s.is_active ? "Diujikan" : "Nonaktif"}</span></label></td>
+          <span class="pill ${scheduleStatus(s) === "Diujikan" ? "on" : ""}">${scheduleStatus(s)}</span></label></td>
         <td class="row"><button class="sm" data-q="${s.id}">Soal</button>
           <button class="sm" data-ed="${s.id}">Edit</button>
           <button class="sm danger" data-del="${s.id}">Hapus</button></td></tr>`).join("")
-        || `<tr><td colspan="4" class="muted">Belum ada mapel.</td></tr>`}
+        || `<tr><td colspan="5" class="muted">Belum ada mapel.</td></tr>`}
       </tbody></table></div></div>`;
   $("#add").onclick = () => subjectForm();
   $("#pane").onclick = async e => {
@@ -119,16 +139,27 @@ function subjectForm(s = {}) {
       <label>Nama mapel</label><input type="text" id="n" required value="${esc(s.name || "")}" placeholder="Contoh: PAI Kelas 9 - Bab 3">
       <label>Keterangan (opsional)</label><input type="text" id="d" value="${esc(s.description || "")}">
       <label>Durasi (menit)</label><input type="number" id="m" min="1" required value="${s.duration_minutes || 60}">
+      <div class="row"><div class="grow"><label for="schedule-start">Mulai diujikan (opsional)</label>
+        <input type="datetime-local" id="schedule-start" value="${localDateTimeValue(s.scheduled_start)}"></div>
+        <div class="grow"><label for="schedule-end">Berakhir diujikan (opsional)</label>
+        <input type="datetime-local" id="schedule-end" value="${localDateTimeValue(s.scheduled_end)}"></div></div>
+      <p class="small muted">Waktu mengikuti zona waktu lokal perangkat ini. Kosongkan mulai untuk langsung aktif; kosongkan berakhir agar tidak berakhir otomatis.</p>
       <label class="check"><input type="checkbox" id="sh" ${s.shuffle_questions ? "checked" : ""}> Acak urutan soal tiap siswa</label>
-      <label class="check"><input type="checkbox" id="ac" ${s.is_active ? "checked" : ""}> Aktifkan (diujikan sekarang)</label>
+      <label class="check"><input type="checkbox" id="ac" ${s.is_active ? "checked" : ""}> Aktifkan mapel dan gunakan jadwal di atas</label>
       <div class="row" style="margin-top:14px"><button class="primary">Simpan</button>
       <button type="button" id="cc">Batal</button></div></form></div>`;
   $("#cc").onclick = paneSubjects;
   $("#sf").onsubmit = async e => {
     e.preventDefault();
+    const startValue = $("#schedule-start").value;
+    const endValue = $("#schedule-end").value;
+    if (startValue && endValue && new Date(endValue) <= new Date(startValue))
+      return toast("Waktu berakhir harus setelah waktu mulai.");
     const row = { name: $("#n").value.trim(), description: $("#d").value.trim() || null,
       duration_minutes: +$("#m").value, shuffle_questions: $("#sh").checked,
-      is_active: $("#ac").checked };
+      is_active: $("#ac").checked,
+      scheduled_start: startValue ? new Date(startValue).toISOString() : null,
+      scheduled_end: endValue ? new Date(endValue).toISOString() : null };
     const { error } = s.id ? await sb.from("subjects").update(row).eq("id", s.id) : await sb.from("subjects").insert(row);
     error ? toast(errMsg(error)) : (toast("Tersimpan"), paneSubjects());
   };

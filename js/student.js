@@ -7,6 +7,7 @@ let S = null;      // sesi ujian aktif {attemptId, subjectId, name, cls, answers
 let exam = null;   // {subject, questions} dari server
 let cur = 0;
 let timerId = null;
+let homeRefreshId = null;
 
 const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* abaikan */ } };
@@ -61,6 +62,7 @@ function showStudentLogin(msg = "") {
 
 async function showHome() {
   clearInterval(timerId);
+  clearInterval(homeRefreshId);
   if (!configured) { app.innerHTML = header() + notConfiguredHTML(); return; }
   if (!STUDENT?.session_token) { showStudentLogin(); return; }
   app.innerHTML = header() + `<p class="muted center">Memuat daftar ujian…</p>`;
@@ -118,6 +120,7 @@ async function showHome() {
     $("#discard").onclick = () => { if (confirm("Batalkan ujian yang belum selesai?")) { lsDel(LS_SESSION); showHome(); } };
   }
   app.querySelectorAll("[data-score-review]").forEach(b => b.onclick = () => showReview(b.dataset.scoreReview));
+  homeRefreshId = setInterval(() => { if (!S) showHome(); }, 60000);
 }
 
 function renderStudentScores(rows) {
@@ -137,6 +140,7 @@ async function loadExam(subjectId) {
 }
 
 async function startExam(subjectId) {
+  clearInterval(homeRefreshId);
   const { data: attemptId, error } = await sb.rpc("start_attempt", {
     p_subject: subjectId, p_session: STUDENT.session_token
   });
