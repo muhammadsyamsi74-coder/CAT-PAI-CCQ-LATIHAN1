@@ -28,6 +28,8 @@ Kunci jawaban **tidak pernah dikirim ke browser siswa** selama ujian; penilaian 
    Migration ini aman dijalankan pada database aplikasi lama dan mendaftarkan empat peserta yang ditentukan.
 8. Jalankan `supabase/migration_student_review.sql` agar siswa dapat membuka pembahasan dari baris nilai miliknya.
 9. Jalankan `supabase/migration_subject_schedule.sql` untuk menambahkan jadwal mulai dan berakhir mata pelajaran.
+   Jika migration jadwal sudah pernah dijalankan sebelumnya, jalankan juga `supabase/migration_activation_mode_required.sql`
+   untuk menerapkan validasi rentang jadwal yang baru.
 
 ## 2. Isi konfigurasi
 
@@ -55,7 +57,9 @@ lalu buka `http://localhost:3000` (siswa) dan `http://localhost:3000/admin.html`
 **Admin:** Mata Pelajaran → tambah/edit mapel (durasi, acak soal, waktu mulai dan berakhir) → tab *Soal* → tambah soal.
 Centang **Aktifkan mapel** dan atur tanggal/jam. Mapel akan otomatis terlihat dan dapat dimulai saat waktu mulai tercapai,
 lalu otomatis tersembunyi/tidak dapat dimulai ketika waktu berakhir. Kosongkan mulai untuk aktif langsung, atau kosongkan
-berakhir agar tidak ditutup otomatis. Waktu ditafsirkan sesuai zona waktu lokal perangkat admin dan dijaga oleh database.
+berakhir agar tidak ditutup otomatis. Saat mencentang status **Diujikan**, pilih salah satu: **tanggal/jam mulai dan batas akhir**
+atau **Aktifkan dari sekarang — selamanya**. Mode jadwal memerlukan kedua waktu; database juga memvalidasi rentang tersebut.
+Waktu ditafsirkan sesuai zona waktu lokal perangkat admin.
 Tab *Hasil Siswa* menampilkan nilai per mapel dan bisa diunduh sebagai CSV (Excel).
 
 **Impor soal Excel:** pada tab *Soal*, pilih mapel lalu klik **Unduh template Excel**. Isi sheet `Soal`

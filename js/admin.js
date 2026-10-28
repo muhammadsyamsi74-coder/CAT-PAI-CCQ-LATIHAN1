@@ -127,39 +127,65 @@ async function paneSubjects() {
   };
   $("#pane").onchange = async e => {
     if (!e.target.dataset.act) return;
-    const { error } = await sb.from("subjects").update({ is_active: e.target.checked }).eq("id", e.target.dataset.act);
+    const subject = list.find(s => s.id === e.target.dataset.act);
+    if (e.target.checked) { subjectForm(subject, true); return; }
+    const { error } = await sb.from("subjects").update({ is_active: false }).eq("id", e.target.dataset.act);
     if (error) toast(errMsg(error));
     paneSubjects();
   };
 }
 
-function subjectForm(s = {}) {
+function subjectForm(s = {}, requireActivationChoice = false) {
+  const activationMode = requireActivationChoice ? "" : s.scheduled_start || s.scheduled_end ? "range" : "forever";
+  const activationChecked = requireActivationChoice || !!s.is_active;
   $("#pane").innerHTML = `<div class="card" style="max-width:600px"><h2>${s.id ? "Edit" : "Tambah"} Mapel</h2>
     <form id="sf">
       <label>Nama mapel</label><input type="text" id="n" required value="${esc(s.name || "")}" placeholder="Contoh: PAI Kelas 9 - Bab 3">
       <label>Keterangan (opsional)</label><input type="text" id="d" value="${esc(s.description || "")}">
       <label>Durasi (menit)</label><input type="number" id="m" min="1" required value="${s.duration_minutes || 60}">
-      <div class="row"><div class="grow"><label for="schedule-start">Mulai diujikan (opsional)</label>
-        <input type="datetime-local" id="schedule-start" value="${localDateTimeValue(s.scheduled_start)}"></div>
-        <div class="grow"><label for="schedule-end">Berakhir diujikan (opsional)</label>
-        <input type="datetime-local" id="schedule-end" value="${localDateTimeValue(s.scheduled_end)}"></div></div>
-      <p class="small muted">Waktu mengikuti zona waktu lokal perangkat ini. Kosongkan mulai untuk langsung aktif; kosongkan berakhir agar tidak berakhir otomatis.</p>
       <label class="check"><input type="checkbox" id="sh" ${s.shuffle_questions ? "checked" : ""}> Acak urutan soal tiap siswa</label>
-      <label class="check"><input type="checkbox" id="ac" ${s.is_active ? "checked" : ""}> Aktifkan mapel dan gunakan jadwal di atas</label>
+      <label class="check"><input type="checkbox" id="ac" ${activationChecked ? "checked" : ""}> Aktifkan mapel untuk diujikan</label>
+      <div id="activation-options" class="card" style="margin:8px 0;padding:12px">
+        <p><b>Pilih masa aktif (wajib saat mapel diaktifkan)</b></p>
+        <label class="check"><input type="radio" name="activation-mode" value="range" ${activationMode === "range" ? "checked" : ""}>
+          Aktif pada tanggal/jam yang ditentukan</label>
+        <div class="row"><div class="grow"><label for="schedule-start">Mulai</label>
+          <input type="datetime-local" id="schedule-start" value="${localDateTimeValue(s.scheduled_start)}"></div>
+          <div class="grow"><label for="schedule-end">Batas akhir</label>
+          <input type="datetime-local" id="schedule-end" value="${localDateTimeValue(s.scheduled_end)}"></div></div>
+        <label class="check"><input type="radio" name="activation-mode" value="forever" ${activationMode === "forever" ? "checked" : ""}>
+          Aktifkan dari sekarang — selamanya</label>
+        <p class="small muted">Mode jadwal wajib memiliki waktu mulai dan batas akhir. Waktu mengikuti zona waktu perangkat admin.</p>
+      </div>
       <div class="row" style="margin-top:14px"><button class="primary">Simpan</button>
       <button type="button" id="cc">Batal</button></div></form></div>`;
   $("#cc").onclick = paneSubjects;
+  const syncActivationOptions = () => {
+    const enabled = $("#ac").checked;
+    const mode = $("input[name=activation-mode]:checked")?.value;
+    $("#activation-options").classList.toggle("hidden", !enabled);
+    $("#schedule-start").required = enabled && mode === "range";
+    $("#schedule-end").required = enabled && mode === "range";
+  };
+  $("#ac").onchange = syncActivationOptions;
+  $$('input[name="activation-mode"]').forEach(r => r.onchange = syncActivationOptions);
+  syncActivationOptions();
   $("#sf").onsubmit = async e => {
     e.preventDefault();
+    const active = $("#ac").checked;
+    const mode = $("input[name=activation-mode]:checked")?.value;
+    if (active && !mode) return toast("Pilih jadwal tanggal/jam atau aktifkan dari sekarang — selamanya.");
     const startValue = $("#schedule-start").value;
     const endValue = $("#schedule-end").value;
+    if (active && mode === "range" && (!startValue || !endValue))
+      return toast("Isi waktu mulai dan batas akhir untuk mode jadwal.");
     if (startValue && endValue && new Date(endValue) <= new Date(startValue))
       return toast("Waktu berakhir harus setelah waktu mulai.");
+    const scheduledStart = active && mode === "range" ? new Date(startValue).toISOString() : null;
+    const scheduledEnd = active && mode === "range" ? new Date(endValue).toISOString() : null;
     const row = { name: $("#n").value.trim(), description: $("#d").value.trim() || null,
       duration_minutes: +$("#m").value, shuffle_questions: $("#sh").checked,
-      is_active: $("#ac").checked,
-      scheduled_start: startValue ? new Date(startValue).toISOString() : null,
-      scheduled_end: endValue ? new Date(endValue).toISOString() : null };
+      is_active: active, scheduled_start: scheduledStart, scheduled_end: scheduledEnd };
     const { error } = s.id ? await sb.from("subjects").update(row).eq("id", s.id) : await sb.from("subjects").insert(row);
     error ? toast(errMsg(error)) : (toast("Tersimpan"), paneSubjects());
   };
