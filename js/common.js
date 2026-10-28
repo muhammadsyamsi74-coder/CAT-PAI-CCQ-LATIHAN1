@@ -49,6 +49,9 @@ function errMsg(e) {
   const map = {
     mapel_tidak_aktif: "Mapel ini tidak sedang diujikan.",
     nama_kelas_kosong: "Nama dan kelas wajib diisi.",
+    login_gagal: "Nama atau kata sandi tidak sesuai.",
+    sesi_tidak_berlaku: "Sesi peserta sudah berakhir. Silakan masuk kembali.",
+    hasil_tidak_dapat_diakses: "Hasil ini bukan milik akun peserta yang sedang masuk.",
     belum_selesai: "Ujian belum selesai / data tidak ditemukan.",
     pembahasan_dimatikan: "Pembahasan untuk mapel ini tidak ditampilkan oleh admin."
   };

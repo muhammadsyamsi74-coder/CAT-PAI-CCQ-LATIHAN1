@@ -20,8 +20,12 @@ Kunci jawaban **tidak pernah dikirim ke browser siswa** selama ujian; penilaian 
 4. Buka **SQL Editor → New query**, salin isi `supabase/schema.sql`.
    **Ganti** `GANTI_DENGAN_EMAIL_ADMIN@contoh.com` (di bagian `admin_emails`) dengan email admin dari langkah 2, lalu **Run**.
    - Untuk beberapa admin, tambahkan baris email lagi: `insert into admin_emails values ('guru2@contoh.com');`
+   - Jika user admin sudah dibuat tetapi login ditolak karena belum terdaftar, jalankan:
+     `insert into public.admin_emails (email) values ('EMAIL_ADMIN_ANDA') on conflict (email) do nothing;`
 5. (Opsional) jalankan `supabase/contoh_soal.sql` untuk mapel contoh.
 6. Buka **Project Settings → API**, salin **Project URL** dan **anon / publishable key**.
+7. Untuk fitur login peserta dan pembatasan nilai, jalankan juga `supabase/migration_student_access.sql` di SQL Editor.
+   Migration ini aman dijalankan pada database aplikasi lama dan mendaftarkan empat peserta yang ditentukan.
 
 ## 2. Isi konfigurasi
 
@@ -50,6 +54,14 @@ lalu buka `http://localhost:3000` (siswa) dan `http://localhost:3000/admin.html`
 nyalakan saklar **Diujikan** pada mapel yang akan diujikan. Matikan setelah ujian selesai.
 Tab *Hasil Siswa* menampilkan nilai per mapel dan bisa diunduh sebagai CSV (Excel).
 
+**Impor soal Excel:** pada tab *Soal*, pilih mapel lalu klik **Unduh template Excel**. Isi sheet `Soal`
+(satu soal per baris), simpan sebagai `.xlsx`, lalu klik **Impor Excel**. Kolom wajib: `Tipe`, `Teks Soal`,
+`Kunci Jawaban`; kolom pilihan `Opsi A`–`Opsi E`, `Pembahasan`, `Bobot`, dan `Urutan` mengikuti petunjuk di sheet `Panduan`.
+
+**Peserta:** masuk dengan nama terdaftar dan kata sandi bersama `1234`. Nilai yang ditampilkan dibatasi ke hasil
+peserta tersebut dan hasil TIM CCA SMPN8. Karena semua peserta memakai kata sandi yang sama, ini tidak dapat
+mencegah peserta memilih nama orang lain; gunakan kata sandi unik per peserta bila perlu pemisahan identitas yang kuat.
+
 **Menulis soal dengan ayat:** tempel teks Arab langsung ke kolom soal (dari Al-Qur'an digital / Word, harakat ikut).
 Baris yang berisi ayat otomatis tampil besar, rata kanan, dengan font Amiri Quran. Ada pratinjau langsung di form.
 
@@ -61,6 +73,5 @@ sehingga aman bila halaman ter-refresh) → lihat nilai → *Lihat Pembahasan*.
 ## Catatan keamanan (sederhana)
 
 - Admin hanya bisa login dengan akun Supabase **dan** emailnya terdaftar di `admin_emails`.
-- Siswa tidak login; siapa pun yang tahu alamat situs bisa mengisi nama & kelas. Cukup untuk penggunaan internal,
-  tetapi tidak mencegah siswa mengerjakan dua kali dengan nama berbeda.
+- Login peserta memakai satu kata sandi bersama untuk kemudahan; ini bukan autentikasi kuat terhadap pemalsuan nama.
 - Link pembahasan memakai ID unik acak; tidak bisa ditebak.

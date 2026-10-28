@@ -1,7 +1,7 @@
 // Aplikasi siswa: pilih mapel -> ujian -> hasil -> pembahasan
 const app = $("#app");
 const LS_SESSION = "cat_pai_session";
-const LS_HISTORY = "cat_pai_history";
+const LS_STUDENT = "cat_pai_student";
 
 let S = null;      // sesi ujian aktif {attemptId, subjectId, name, cls, answers, flags, order, endTime}
 let exam = null;   // {subject, questions} dari server
@@ -12,6 +12,8 @@ const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d;
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* abaikan */ } };
 const lsDel = k => { try { localStorage.removeItem(k); } catch { /* abaikan */ } };
 const saveSession = () => lsSet(LS_SESSION, S);
+let STUDENT = lsGet(LS_STUDENT, null);
+lsDel("cat_pai_history");
 
 function header(sub) {
   return `<div class="brand"><div class="logo">☪</div>
@@ -30,63 +32,84 @@ function seededShuffle(arr, seedStr) {
   return r;
 }
 
-// ===================== BERANDA =====================
+// ===================== LOGIN PESERTA & BERANDA =====================
+function showStudentLogin(msg = "") {
+  app.innerHTML = header() + `<div class="card" style="max-width:440px;margin:24px auto">
+    <h2>Masuk sebagai peserta</h2><p class="muted small">Pilih nama yang terdaftar dan masukkan kata sandi peserta.</p>
+    <form id="student-login"><label for="student-name">Nama peserta</label>
+      <select id="student-name" required>
+        <option value="">Pilih nama</option><option>Putri Dania Oktaviana</option>
+        <option>Zaila Elvina Khairani</option><option>Dila Ayu Zakiyah</option><option>TIM CCA SMPN8</option>
+      </select>
+      <label for="student-password">Kata sandi</label><input id="student-password" type="password" inputmode="numeric" required autocomplete="current-password">
+      ${msg ? `<div class="alert err">${esc(msg)}</div>` : ""}
+      <button class="primary" style="margin-top:14px;width:100%">Masuk</button></form></div>`;
+  $("#student-login").onsubmit = async e => {
+    e.preventDefault();
+    const { data, error } = await sb.rpc("student_login", {
+      p_name: $("#student-name").value, p_password: $("#student-password").value
+    });
+    if (error) {
+      const needsMigration = /student_login|schema cache|function .* does not exist/i.test(error.message || "");
+      return showStudentLogin(needsMigration
+        ? "Database peserta belum disiapkan. Jalankan supabase/migration_student_access.sql di Supabase SQL Editor."
+        : "Nama atau kata sandi tidak sesuai.");
+    }
+    STUDENT = data; lsSet(LS_STUDENT, STUDENT); showHome();
+  };
+}
+
 async function showHome() {
   clearInterval(timerId);
   if (!configured) { app.innerHTML = header() + notConfiguredHTML(); return; }
+  if (!STUDENT?.session_token) { showStudentLogin(); return; }
   app.innerHTML = header() + `<p class="muted center">Memuat daftar ujian…</p>`;
 
-  const { data: subjects, error } = await sb.from("subjects")
-    .select("id,name,description,duration_minutes").eq("is_active", true).order("name");
+  const [{ data: subjects, error }, { data: scores, error: scoreError }] = await Promise.all([
+    sb.from("subjects").select("id,name,description,duration_minutes").eq("is_active", true).order("name"),
+    sb.rpc("get_student_scores", { p_session: STUDENT.session_token })
+  ]);
+  if (scoreError) {
+    STUDENT = null; lsDel(LS_STUDENT); showStudentLogin("Sesi peserta tidak berlaku. Silakan masuk kembali."); return;
+  }
   if (error) { app.innerHTML = header() + `<div class="alert err">${esc(errMsg(error))}</div>`; return; }
 
   const saved = lsGet(LS_SESSION, null);
-  const history = lsGet(LS_HISTORY, []);
+  if (saved && !saved.studentId) lsDel(LS_SESSION);
+  const canResume = saved && saved.studentId === STUDENT.participant_id;
   let chosen = subjects.length === 1 ? subjects[0].id : null;
-
   app.innerHTML = header() + `
-    ${saved ? `<div class="card" style="border-color:var(--warn)">
-        <b>Ujian belum selesai</b>
-        <p class="small">${esc(saved.name)} (${esc(saved.cls)}) — ${esc(saved.subjectName || "")}</p>
-        <div class="row"><button class="primary" id="resume">Lanjutkan ujian</button>
-        <button id="discard" class="danger sm">Batalkan</button></div></div>` : ""}
-    <div class="card">
-      <h2>Mulai Ujian</h2>
-      <label for="nm">Nama lengkap</label>
-      <input type="text" id="nm" autocomplete="off" placeholder="Nama sesuai absen">
-      <label for="kl">Kelas</label>
-      <input type="text" id="kl" autocomplete="off" placeholder="Contoh: 9A">
+    <div class="row between"><p class="small muted">Peserta: <b>${esc(STUDENT.name)}</b> · Kelas ${esc(STUDENT.class_name)}</p>
+      <button class="sm" id="student-logout">Keluar</button></div>
+    ${canResume ? `<div class="card" style="border-color:var(--warn)"><b>Ujian belum selesai</b>
+      <p class="small">${esc(saved.name)} (${esc(saved.cls)}) — ${esc(saved.subjectName || "")}</p>
+      <div class="row"><button class="primary" id="resume">Lanjutkan ujian</button>
+      <button id="discard" class="danger sm">Batalkan</button></div></div>` : ""}
+    <div class="card"><h2>Mulai Ujian</h2>
+      <p>Nama: <b>${esc(STUDENT.name)}</b> · Kelas: <b>${esc(STUDENT.class_name)}</b></p>
       <label>Pilih mata pelajaran</label>
-      <div id="subjs">${subjects.length ? subjects.map(s => `
-        <button class="subj ${s.id === chosen ? "sel" : ""}" data-id="${s.id}">
-          <b>${esc(s.name)}</b>
-          <span class="muted small">${s.duration_minutes} menit${s.description ? " · " + esc(s.description) : ""}</span>
-        </button>`).join("")
+      <div id="subjs">${subjects.length ? subjects.map(s => `<button class="subj ${s.id === chosen ? "sel" : ""}" data-id="${s.id}">
+        <b>${esc(s.name)}</b><span class="muted small">${s.duration_minutes} menit${s.description ? " · " + esc(s.description) : ""}</span></button>`).join("")
         : `<div class="alert info">Belum ada ujian yang diaktifkan. Hubungi pengawas.</div>`}</div>
-      <div id="msg"></div>
-      <button class="primary" id="start" style="margin-top:12px" ${subjects.length ? "" : "disabled"}>Mulai Ujian</button>
-    </div>
-    ${history.length ? `<div class="card"><h3>Riwayat di perangkat ini</h3>
-      ${history.map((h, i) => `<div class="row between" style="padding:6px 0;border-top:1px solid var(--line)">
-        <div><b>${esc(h.subjectName)}</b><div class="small muted">${esc(h.name)} · ${esc(h.date)}</div></div>
-        <div class="row"><b>${h.score}</b><button class="sm" data-rv="${i}">Lihat hasil</button></div></div>`).join("")}
-    </div>` : ""}`;
+      <div id="msg"></div><button class="primary" id="start" style="margin-top:12px" ${subjects.length ? "" : "disabled"}>Mulai Ujian</button>
+    </div><div class="card"><h3>Nilai peserta</h3>${renderStudentScores(scores || [])}</div>`;
 
+  $("#student-logout").onclick = () => {
+    if (canResume && !confirm("Keluar? Ujian yang belum selesai tidak dapat dilanjutkan dari akun lain.")) return;
+    STUDENT = null; lsDel(LS_STUDENT); lsDel(LS_SESSION); showStudentLogin();
+  };
   $("#subjs").addEventListener("click", e => {
     const b = e.target.closest(".subj"); if (!b) return;
-    chosen = b.dataset.id;
-    $$(".subj").forEach(x => x.classList.toggle("sel", x === b));
+    chosen = b.dataset.id; $$(".subj").forEach(x => x.classList.toggle("sel", x === b));
   });
   $("#start").onclick = async () => {
-    const name = $("#nm").value.trim(), cls = $("#kl").value.trim();
     const msg = $("#msg");
-    if (!name || !cls) { msg.innerHTML = `<div class="alert err">Nama dan kelas wajib diisi.</div>`; return; }
     if (!chosen) { msg.innerHTML = `<div class="alert err">Pilih mata pelajaran dulu.</div>`; return; }
     $("#start").disabled = true;
-    try { await startExam(chosen, name, cls); }
+    try { await startExam(chosen); }
     catch (e) { msg.innerHTML = `<div class="alert err">${esc(errMsg(e))}</div>`; $("#start").disabled = false; }
   };
-  if (saved) {
+  if (canResume) {
     $("#resume").onclick = async () => {
       S = saved;
       try { await loadExam(S.subjectId); cur = 0; renderExam(); }
@@ -94,9 +117,17 @@ async function showHome() {
     };
     $("#discard").onclick = () => { if (confirm("Batalkan ujian yang belum selesai?")) { lsDel(LS_SESSION); showHome(); } };
   }
-  $$("[data-rv]").forEach(b => b.onclick = () => showReview(history[b.dataset.rv].attemptId));
+  app.querySelectorAll("[data-score-review]").forEach(b => b.onclick = () => showReview(b.dataset.scoreReview));
 }
 
+function renderStudentScores(rows) {
+  if (!rows.length) return `<p class="muted">Belum ada nilai tersimpan.</p>`;
+  const fmt = d => new Date(d).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" });
+  return `<div class="tbl"><table><thead><tr><th>Peserta</th><th>Mapel</th><th>Nilai</th><th>Selesai</th><th></th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${esc(r.is_team ? "TIM CCA SMPN8" : STUDENT.name)}</td><td>${esc(r.subject_name)}</td>
+      <td><b>${Number(r.score)}</b></td><td>${fmt(r.finished_at)}</td><td>${r.is_team ? "" : `<button class="sm" data-score-review="${esc(r.attempt_id)}">Pembahasan</button>`}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
 // ===================== MULAI & MUAT UJIAN =====================
 async function loadExam(subjectId) {
   const { data, error } = await sb.rpc("get_exam", { p_subject: subjectId });
@@ -104,15 +135,18 @@ async function loadExam(subjectId) {
   exam = data;
 }
 
-async function startExam(subjectId, name, cls) {
-  const { data: attemptId, error } = await sb.rpc("start_attempt", { p_subject: subjectId, p_name: name, p_class: cls });
+async function startExam(subjectId) {
+  const { data: attemptId, error } = await sb.rpc("start_attempt", {
+    p_subject: subjectId, p_session: STUDENT.session_token
+  });
   if (error) throw error;
   await loadExam(subjectId);
   if (!exam.questions.length) throw new Error("Mapel ini belum memiliki soal.");
   let order = exam.questions.map(q => q.id);
   if (exam.subject.shuffle_questions) order = seededShuffle(order, attemptId);
   S = {
-    attemptId, subjectId, name, cls, subjectName: exam.subject.name,
+    attemptId, subjectId, studentId: STUDENT.participant_id, name: STUDENT.name,
+    cls: STUDENT.class_name, subjectName: exam.subject.name,
     answers: {}, flags: {}, order,
     endTime: Date.now() + exam.subject.duration_minutes * 60000
   };
@@ -212,12 +246,10 @@ async function finishExam(auto) {
   clearInterval(timerId);
   const btn = $("#finish"); if (btn) { btn.disabled = true; btn.textContent = "Mengirim…"; }
   try {
-    const { data, error } = await sb.rpc("submit_attempt", { p_attempt: S.attemptId, p_answers: S.answers });
+    const { data, error } = await sb.rpc("submit_attempt", {
+      p_attempt: S.attemptId, p_answers: S.answers, p_session: STUDENT.session_token
+    });
     if (error) throw error;
-    const hist = lsGet(LS_HISTORY, []);
-    hist.unshift({ attemptId: S.attemptId, subjectName: S.subjectName, name: S.name, score: data.score,
-      date: new Date().toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" }) });
-    lsSet(LS_HISTORY, hist.slice(0, 20));
     lsDel(LS_SESSION);
     showResult(data, exam.subject.name);
     S = null;
@@ -246,7 +278,9 @@ function showResult(r, subjectName) {
 // ===================== PEMBAHASAN =====================
 async function showReview(attemptId) {
   app.innerHTML = header() + `<p class="center muted">Memuat pembahasan…</p>`;
-  const { data, error } = await sb.rpc("get_review", { p_attempt: attemptId });
+  const { data, error } = await sb.rpc("get_review", {
+    p_attempt: attemptId, p_session: STUDENT.session_token
+  });
   if (error) {
     app.innerHTML = header() + `<div class="alert err">${esc(errMsg(error))}</div><button id="home">Kembali</button>`;
     $("#home").onclick = showHome; return;

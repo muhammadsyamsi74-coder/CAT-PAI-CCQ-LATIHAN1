@@ -25,18 +25,27 @@ function showLogin(msg = "") {
     </form></div>`;
   $("#lf").onsubmit = async e => {
     e.preventDefault();
+    const submit = $("#lf button"); submit.disabled = true; submit.textContent = "Memeriksa…";
     const { error } = await sb.auth.signInWithPassword({ email: $("#em").value.trim(), password: $("#pw").value });
-    if (error) return showLogin("Email atau kata sandi salah.");
+    if (error) {
+      let msg = error.message || "Login gagal.";
+      if (/invalid login credentials/i.test(msg)) msg = "Email atau kata sandi salah. Pastikan akun sudah dibuat pada Authentication → Users.";
+      else if (/email not confirmed/i.test(msg)) msg = "Email belum dikonfirmasi. Aktifkan Auto Confirm untuk user ini di Supabase Authentication → Users.";
+      else if (/network|fetch/i.test(msg)) msg = "Tidak dapat terhubung ke Supabase. Periksa koneksi dan URL/key proyek.";
+      return showLogin(msg);
+    }
     showAdmin();
   };
 }
 
 async function showAdmin() {
   // pastikan akun ini terdaftar sebagai admin
-  const { data: ok } = await sb.rpc("is_admin");
-  if (!ok) {
+  const { data: ok, error } = await sb.rpc("is_admin");
+  if (error || !ok) {
     await sb.auth.signOut();
-    return showLogin("Akun ini tidak terdaftar sebagai admin (cek tabel admin_emails).");
+    return showLogin(error
+      ? `Login berhasil tetapi pemeriksaan admin gagal: ${error.message}`
+      : "Login berhasil, tetapi email belum terdaftar di tabel admin_emails. Tambahkan email ini di Supabase SQL Editor.");
   }
   app.innerHTML = head(`<button id="out" class="sm">Keluar</button>`) + `
     <div class="tabs">
@@ -136,7 +145,11 @@ async function paneQuestions() {
 
   $("#pane").innerHTML = `<div class="card">
     <div class="row between"><div class="row">${subjectPicker(list)}<span class="muted small">${qs.length} soal</span></div>
+      <div class="row"><button id="download-template" type="button">Unduh template Excel</button>
+      <button id="import-trigger" type="button">Impor Excel</button>
+      <input id="import-file" type="file" accept=".xlsx,.xls,.csv" hidden>
       <button class="primary" id="add">+ Tambah Soal</button></div></div>
+    <p class="small muted">Kolom: Tipe, Teks Soal, Opsi A–E, Kunci Jawaban, Pembahasan, Bobot, Urutan.</p></div>
     ${qs.map((q, i) => `<div class="card"><div class="qrow"><div class="num">${i + 1}</div><div class="main">
       <div class="small muted">${q.type === "pg" ? "Pilihan ganda · kunci " + esc(q.answer) : "Jawaban singkat · kunci: " + esc(q.answer)} · ${q.points} poin</div>
       <div class="qbody" style="margin:6px 0">${rich(q.body)}</div>
@@ -145,6 +158,9 @@ async function paneQuestions() {
       <button class="sm danger" data-del="${q.id}">Hapus</button></div></div></div>`).join("")}`;
   $("#sp").onchange = e => { selSubject = e.target.value; paneQuestions(); };
   $("#add").onclick = () => questionForm({ position: (qs.at(-1)?.position ?? 0) + 1 });
+  $("#download-template").onclick = downloadQuestionTemplate;
+  $("#import-trigger").onclick = () => $("#import-file").click();
+  $("#import-file").onchange = e => importQuestionSpreadsheet(e.target.files[0], qs);
   $("#pane").onclick = async e => {
     const t = e.target;
     if (t.dataset.ed) questionForm(qs.find(q => q.id === t.dataset.ed));
@@ -153,6 +169,82 @@ async function paneQuestions() {
       error ? toast(errMsg(error)) : paneQuestions();
     }
   };
+}
+
+function downloadQuestionTemplate() {
+  if (!window.XLSX) return toast("Pustaka Excel gagal dimuat. Muat ulang halaman admin.");
+  const headers = ["Tipe", "Teks Soal", "Opsi A", "Opsi B", "Opsi C", "Opsi D", "Opsi E", "Kunci Jawaban", "Pembahasan", "Bobot", "Urutan"];
+  const questions = XLSX.utils.aoa_to_sheet([headers]);
+  questions["!cols"] = headers.map((_, i) => ({ wch: i === 1 || i === 8 ? 42 : 18 }));
+  const guide = XLSX.utils.aoa_to_sheet([
+    ["Panduan mengisi template soal CAT PAI"],
+    ["Isi satu soal pada setiap baris di sheet Soal. Jangan ubah nama kolom."],
+    ["Tipe", "Isi pg untuk pilihan ganda atau isian untuk jawaban singkat."],
+    ["Pilihan ganda", "Isi minimal Opsi A dan Opsi B; Kunci Jawaban diisi huruf A, B, C, D, atau E."],
+    ["Jawaban singkat", "Isi Kunci Jawaban dengan jawaban benar; beberapa variasi pisahkan dengan |. Opsi dikosongkan."],
+    ["Pembahasan", "Opsional. Teks Arab dan baris baru diperbolehkan."],
+    ["Bobot", "Bilangan bulat minimal 1; jika kosong akan menjadi 1."],
+    ["Urutan", "Angka untuk urutan soal; jika kosong, soal diletakkan setelah soal yang sudah ada."]
+  ]);
+  guide["!cols"] = [{ wch: 24 }, { wch: 100 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, questions, "Soal");
+  XLSX.utils.book_append_sheet(workbook, guide, "Panduan");
+  XLSX.writeFile(workbook, "template_import_soal_cat_pai.xlsx");
+}
+
+async function importQuestionSpreadsheet(file, existingQuestions) {
+  if (!file) return;
+  if (!window.XLSX) { toast("Pustaka Excel gagal dimuat. Muat ulang halaman admin."); return; }
+  if (file.size > 5 * 1024 * 1024) { toast("Ukuran file maksimal 5 MB."); return; }
+  try {
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+    const sheet = workbook.Sheets.Soal || workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+    if (!rows.length) throw new Error("Sheet Soal belum berisi data.");
+    const normalized = value => String(value ?? "").trim().toLowerCase();
+    const errors = [], payload = [];
+    let nextPosition = (existingQuestions.at(-1)?.position ?? 0) + 1;
+    rows.forEach((source, index) => {
+      const row = Object.fromEntries(Object.entries(source).map(([k, v]) => [normalized(k), String(v ?? "").trim()]));
+      if (!Object.values(row).some(Boolean)) return;
+      const line = index + 2;
+      const rawType = normalized(row["tipe"]);
+      const type = ["pg", "pilihan ganda"].includes(rawType) ? "pg"
+        : ["isian", "jawaban singkat"].includes(rawType) ? "isian" : "";
+      const body = row["teks soal"] || "";
+      const answer = row["kunci jawaban"] || "";
+      const options = ["opsi a", "opsi b", "opsi c", "opsi d", "opsi e"].map(k => row[k] || "");
+      while (options.length && !options.at(-1)) options.pop();
+      const pointsText = row["bobot"];
+      const points = pointsText ? Number(pointsText) : 1;
+      const positionText = row["urutan"];
+      const position = positionText ? Number(positionText) : nextPosition++;
+      if (!type) errors.push(`Baris ${line}: Tipe harus pg atau isian.`);
+      if (!body) errors.push(`Baris ${line}: Teks Soal wajib diisi.`);
+      if (!answer) errors.push(`Baris ${line}: Kunci Jawaban wajib diisi.`);
+      if (type === "pg" && (options.length < 2 || !/^[A-E]$/i.test(answer)))
+        errors.push(`Baris ${line}: Pilihan ganda perlu minimal dua opsi dan kunci A–E.`);
+      if (type === "pg" && /^[A-E]$/i.test(answer) && !options[answer.toUpperCase().charCodeAt(0) - 65])
+        errors.push(`Baris ${line}: Opsi yang ditandai sebagai kunci belum diisi.`);
+      if (!Number.isInteger(points) || points < 1) errors.push(`Baris ${line}: Bobot harus bilangan bulat minimal 1.`);
+      if (!Number.isInteger(position) || position < 0) errors.push(`Baris ${line}: Urutan harus bilangan bulat 0 atau lebih.`);
+      if (!type || !body || !answer || (type === "pg" && (options.length < 2 || !/^[A-E]$/i.test(answer))) ||
+          !Number.isInteger(points) || points < 1 || !Number.isInteger(position) || position < 0) return;
+      payload.push({ subject_id: selSubject, type, body, options: type === "pg" ? options : null,
+        answer: type === "pg" ? answer.toUpperCase() : answer,
+        explanation: row["pembahasan"] || null, points, position });
+    });
+    if (errors.length) throw new Error(errors.slice(0, 12).join("\n") + (errors.length > 12 ? `\n…dan ${errors.length - 12} kesalahan lain.` : ""));
+    if (!payload.length) throw new Error("Tidak ada baris soal yang valid untuk diimpor.");
+    const { error } = await sb.from("questions").insert(payload);
+    if (error) throw error;
+    toast(`${payload.length} soal berhasil diimpor.`); paneQuestions();
+  } catch (error) {
+    alert("Impor gagal: " + errMsg(error));
+  } finally {
+    const input = $("#import-file"); if (input) input.value = "";
+  }
 }
 
 function questionForm(q = {}) {
