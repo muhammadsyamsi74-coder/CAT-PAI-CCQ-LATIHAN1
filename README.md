@@ -26,6 +26,7 @@ Kunci jawaban **tidak pernah dikirim ke browser siswa** selama ujian; penilaian 
 6. Buka **Project Settings → API**, salin **Project URL** dan **anon / publishable key**.
 7. Untuk fitur login peserta dan pembatasan nilai, jalankan juga `supabase/migration_student_access.sql` di SQL Editor.
    Migration ini aman dijalankan pada database aplikasi lama dan mendaftarkan empat peserta yang ditentukan.
+8. Jalankan `supabase/migration_student_review.sql` agar siswa dapat membuka pembahasan dari baris nilai miliknya.
 
 ## 2. Isi konfigurasi
 
@@ -50,7 +51,7 @@ lalu buka `http://localhost:3000` (siswa) dan `http://localhost:3000/admin.html`
 
 ## Cara pakai
 
-**Admin:** Mata Pelajaran → tambah mapel (durasi, acak soal, izinkan pembahasan) → tab *Soal* → tambah soal →
+**Admin:** Mata Pelajaran → tambah mapel (durasi dan acak soal) → tab *Soal* → tambah soal →
 nyalakan saklar **Diujikan** pada mapel yang akan diujikan. Matikan setelah ujian selesai.
 Tab *Hasil Siswa* menampilkan nilai per mapel dan bisa diunduh sebagai CSV (Excel).
 
@@ -59,7 +60,8 @@ Tab *Hasil Siswa* menampilkan nilai per mapel dan bisa diunduh sebagai CSV (Exce
 `Kunci Jawaban`; kolom pilihan `Opsi A`–`Opsi E`, `Pembahasan`, `Bobot`, dan `Urutan` mengikuti petunjuk di sheet `Panduan`.
 
 **Peserta:** masuk dengan nama terdaftar dan kata sandi bersama `1234`. Nilai yang ditampilkan dibatasi ke hasil
-peserta tersebut dan hasil TIM CCA SMPN8. Karena semua peserta memakai kata sandi yang sama, ini tidak dapat
+peserta tersebut dan hasil TIM CCA SMPN8. Tombol **Lihat pembahasan** tersedia pada nilai yang sudah selesai,
+dan pembahasan hanya dapat dibuka untuk attempt milik akun peserta yang sedang masuk. Karena semua peserta memakai kata sandi yang sama, ini tidak dapat
 mencegah peserta memilih nama orang lain; gunakan kata sandi unik per peserta bila perlu pemisahan identitas yang kuat.
 
 **Menulis soal dengan ayat:** tempel teks Arab langsung ke kolom soal (dari Al-Qur'an digital / Word, harakat ikut).

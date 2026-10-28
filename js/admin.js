@@ -120,7 +120,6 @@ function subjectForm(s = {}) {
       <label>Keterangan (opsional)</label><input type="text" id="d" value="${esc(s.description || "")}">
       <label>Durasi (menit)</label><input type="number" id="m" min="1" required value="${s.duration_minutes || 60}">
       <label class="check"><input type="checkbox" id="sh" ${s.shuffle_questions ? "checked" : ""}> Acak urutan soal tiap siswa</label>
-      <label class="check"><input type="checkbox" id="rv" ${s.show_review === false ? "" : "checked"}> Siswa boleh melihat kunci &amp; pembahasan setelah ujian</label>
       <label class="check"><input type="checkbox" id="ac" ${s.is_active ? "checked" : ""}> Aktifkan (diujikan sekarang)</label>
       <div class="row" style="margin-top:14px"><button class="primary">Simpan</button>
       <button type="button" id="cc">Batal</button></div></form></div>`;
@@ -129,7 +128,7 @@ function subjectForm(s = {}) {
     e.preventDefault();
     const row = { name: $("#n").value.trim(), description: $("#d").value.trim() || null,
       duration_minutes: +$("#m").value, shuffle_questions: $("#sh").checked,
-      show_review: $("#rv").checked, is_active: $("#ac").checked };
+      is_active: $("#ac").checked };
     const { error } = s.id ? await sb.from("subjects").update(row).eq("id", s.id) : await sb.from("subjects").insert(row);
     error ? toast(errMsg(error)) : (toast("Tersimpan"), paneSubjects());
   };

@@ -117,7 +117,6 @@ begin
   select * into a from attempts where id = p_attempt and participant_id = p.id and finished_at is not null;
   if not found then raise exception 'hasil_tidak_dapat_diakses'; end if;
   select * into s from subjects where id = a.subject_id;
-  if not s.show_review then raise exception 'pembahasan_dimatikan'; end if;
   select coalesce(jsonb_agg(jsonb_build_object(
     'id', q.id, 'type', q.type, 'body', q.body, 'options', q.options,
     'answer', q.answer, 'explanation', q.explanation, 'points', q.points,

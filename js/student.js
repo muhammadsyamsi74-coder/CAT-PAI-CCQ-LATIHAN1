@@ -125,7 +125,8 @@ function renderStudentScores(rows) {
   const fmt = d => new Date(d).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" });
   return `<div class="tbl"><table><thead><tr><th>Peserta</th><th>Mapel</th><th>Nilai</th><th>Selesai</th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr><td>${esc(r.is_team ? "TIM CCA SMPN8" : STUDENT.name)}</td><td>${esc(r.subject_name)}</td>
-      <td><b>${Number(r.score)}</b></td><td>${fmt(r.finished_at)}</td><td>${r.is_team ? "" : `<button class="sm" data-score-review="${esc(r.attempt_id)}">Pembahasan</button>`}</td></tr>`).join("")}
+      <td><b>${Number(r.score)}</b></td><td>${fmt(r.finished_at)}</td><td>${!r.is_team || STUDENT.is_team
+        ? `<button class="sm" data-score-review="${esc(r.attempt_id)}">Lihat pembahasan</button>` : ""}</td></tr>`).join("")}
     </tbody></table></div>`;
 }
 // ===================== MULAI & MUAT UJIAN =====================
